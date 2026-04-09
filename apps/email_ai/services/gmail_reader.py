@@ -50,21 +50,16 @@ def fetch_recent_emails(service, max_results=5):
     view layer can render recent messages without persisting them in the local
     database.
     """
-<<<<<<< HEAD
     try:
         response = service.users().messages().list(
             userId="me", maxResults=max_results
         ).execute()
     except Exception as e:
         return []
-=======
-    response = service.users().messages().list(userId="me", maxResults=max_results).execute()
->>>>>>> f1a92286350d6eaa0bb4b893f65ac2f152af7177
     messages = response.get("messages", [])
     emails = []
 
     for message in messages:
-<<<<<<< HEAD
         try:    
             message_data = service.users().messages().get(
                 userId="me",
@@ -74,14 +69,6 @@ def fetch_recent_emails(service, max_results=5):
             ).execute()
         except Exception:
             continue
-=======
-        message_data = service.users().messages().get(
-            userId="me",
-            id=message["id"],
-            format="metadata",
-            metadataHeaders=["From", "Subject"],
-        ).execute()
->>>>>>> f1a92286350d6eaa0bb4b893f65ac2f152af7177
 
         headers = message_data.get("payload", {}).get("headers", [])
         sender = ""
@@ -96,10 +83,7 @@ def fetch_recent_emails(service, max_results=5):
 
         emails.append(
             {
-<<<<<<< HEAD
                 "id": message["id"],
-=======
->>>>>>> f1a92286350d6eaa0bb4b893f65ac2f152af7177
                 "sender": sender,
                 "subject": subject,
                 "snippet": message_data.get("snippet", ""),

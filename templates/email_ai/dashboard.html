@@ -4,4 +4,28 @@
 <a href="{% url 'connect_gmail' %}" class="btn btn-primary">
     Connect Gmail
 </a>
+<a href="{% url 'fetch_emails' %}" class="btn btn-secondary">
+    Fetch Recent Emails
+</a>
+
+{% if error_message %}
+<div class="alert alert-warning mt-3">
+    {{ error_message }}
+</div>
+{% endif %}
+
+{% if emails %}
+<div class="mt-4">
+    <h3>Recent Emails</h3>
+    {% for email in emails %}
+    <div class="card mt-3">
+        <div class="card-body">
+            <p><strong>From:</strong> {{ email.sender }}</p>
+            <p><strong>Subject:</strong> {{ email.subject }}</p>
+            <p><strong>Snippet:</strong> {{ email.snippet }}</p>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

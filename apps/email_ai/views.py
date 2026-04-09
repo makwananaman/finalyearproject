@@ -2,9 +2,11 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest, HttpResponseServerError
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from googleapiclient.errors import HttpError
 
 from .models import GmailCredential
 from .services.gmail_auth import exchange_code_for_tokens, get_authorization_url
+from .services.gmail_reader import fetch_recent_emails, get_gmail_service
 
 def email_dashboard(request):
     # Email AI dashboard
@@ -85,3 +87,39 @@ def gmail_callback(request):
     )
 
     return redirect("email_dashboard")
+
+
+@login_required
+def fetch_emails_view(request):
+    """
+    Load the current user's Gmail credentials and fetch recent emails.
+
+    This view keeps the Gmail API logic in the service layer. If the user has
+    not connected Gmail yet, the dashboard is rendered with a helpful message
+    instead of attempting an API call.
+    """
+    credential = GmailCredential.objects.filter(user=request.user).first()
+    if not credential:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Connect your Gmail account before fetching emails."},
+        )
+
+    try:
+        service = get_gmail_service(credential)
+        emails = fetch_recent_emails(service)
+    except ValueError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": str(exc)},
+        )
+    except HttpError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": f"Gmail API request failed: {exc}"},
+        )
+
+    return render(request, "email_ai/dashboard.html", {"emails": emails})

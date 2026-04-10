@@ -3,24 +3,51 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .groq_client import get_groq_client
 
-import re
-
 
 GROQ_MODEL = "llama-3.1-8b-instant"
-SUPPORTED_INTENTS = {"summarize", "question_answering", "draft_reply"}
+SUPPORTED_INTENTS = {
+    "summarize",
+    "question_answering",
+    "draft_reply",
+    "compose_new_email",
+    "fetch_emails",
+}
+
+
+def _call_groq(system_prompt: str, user_prompt: str) -> str:
+    """
+    Send a prompt to Groq and return the raw model output.
+
+    This helper centralizes the Groq chat-completion call so intent detection,
+    query generation, and response generation all use the same model interface.
+    """
+    client = get_groq_client()
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+    except Exception:
+        return ""
+
+    return response.choices[0].message.content.strip()
 
 
 def _build_email_context(latest_email: dict[str, Any]) -> str:
     """
-    Convert the latest email metadata into a plain-text prompt context.
+    Format one email into a reusable plain-text prompt context block.
 
-    The engine only receives a lightweight email payload, so this helper
-    formats the subject, sender, and snippet into a consistent block that can
-    be reused by intent detection and all downstream response functions.
+    The AI engine receives lightweight metadata from the Gmail layer, so this
+    helper converts that metadata into a stable text representation.
     """
     subject = str(latest_email.get("subject", "")).strip()
     sender = str(latest_email.get("sender", "")).strip()
@@ -33,92 +60,145 @@ def _build_email_context(latest_email: dict[str, Any]) -> str:
     )
 
 
-def _call_groq(system_prompt: str, user_prompt: str) -> str:
+def _extract_json_object(raw_text: str) -> dict[str, Any]:
     """
-    Send a chat completion request to Groq and return the raw text response.
+    Parse a JSON object from model output and return an empty dict on failure.
 
-    This helper centralizes the model name and request structure so the intent
-    classifier and the routed handlers all use the same LLM interface.
+    The model may include extra wrapper text, so this helper extracts the
+    first object-shaped block before attempting JSON parsing.
     """
-    client = get_groq_client()
+    if not raw_text:
+        return {}
+
+    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+    if match:
+        raw_text = match.group(0)
+
     try:
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        
-        output = response.choices[0].message.content.strip()
-        print("LLM Response:", output)
-        
-        return output if output else ""
-        
-    except Exception as e:
-        return ""
-        
-    return response.choices[0].message.content.strip()
+        parsed = json.loads(raw_text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+    return parsed if isinstance(parsed, dict) else {}
 
 
-def _detect_intent(user_input: str, latest_email: dict[str, Any]) -> str:
+def detect_intent(user_input: str) -> str:
     """
-    Classify the user's request into one of the supported email intents.
+    Detect the user's email-related intent using only the user message.
 
-    The classifier uses both the user query and the latest email context, then
-    returns one normalized label that the router can safely dispatch on.
+    The caller uses this result to decide whether to compose a new email,
+    fetch relevant emails, or route an existing email into summarization,
+    question answering, or reply drafting.
     """
-    email_context = _build_email_context(latest_email)
     raw_response = _call_groq(
         system_prompt=(
-            "You are an intent classifier.\n"
-            "Return ONLY valid JSON.\n"
-            "No explanation, no extra text.\n"
-            "Format:\n"
-            '{"intent": "summarize"}\n'
-            "Allowed values:\n"
-            "- summarize\n"
-            "- question_answering\n"
-            "- draft_reply\n"
+            "You are an email intent classifier.\n"
+            "Return ONLY valid JSON in this exact shape:\n"
+            '{"intent": "fetch_emails"}\n'
+            "Valid intents are:\n"
+            "- summarize: summarize an existing email\n"
+            "- question_answering: answer a question about an existing email\n"
+            "- draft_reply: draft a reply to an existing email\n"
+            "- compose_new_email: create a brand-new email not based on the latest email\n"
+            "- fetch_emails: fetch or list relevant emails\n\n"
+            "Rules:\n"
+            "- If the user asks to list, show, fetch, get, or read emails without asking for analysis, return fetch_emails.\n"
+            "- If the user asks for a summary, brief understanding, explanation, or what an email means, return summarize.\n"
+            "- If the user asks a specific question about an email, return question_answering.\n"
+            "- If the user asks for a reply to an existing email, return draft_reply.\n"
+            '- If the user mentions a specific email address, "send email to", or "compose email", '
+            "return compose_new_email only when the request is about creating a brand-new email.\n"
+            "- Mentioning a sender email address to identify an existing email does NOT mean compose_new_email.\n"
+            "Do not return any explanation or extra text."
         ),
-        user_prompt=(
-            "Determine the user's intent based on the request and email.\n\n"
-            f"User request:\n{user_input}\n\n"
-            f"Latest email:\n{email_context}"
-        ),
+        user_prompt=f"User request:\n{user_input}",
     )
 
-    try:
-        match = re.search(r"\{.*\}", raw_response, re.DOTALL)
-        if match:
-            raw_response = match.group()
-        
-        parsed_response = json.loads(raw_response)
-        intent = str(parsed_response.get("intent", "")).strip()
-        
-    except (TypeError, ValueError, json.JSONDecodeError):
-        print("Intent parsing failed:", raw_response)
-        intent = ""
-
+    parsed_response = _extract_json_object(raw_response)
+    intent = str(parsed_response.get("intent", "")).strip()
     if intent not in SUPPORTED_INTENTS:
-        print("Invalid intent:", intent)
         return "question_answering"
-
     return intent
+
+
+def generate_email_search_query(user_input: str) -> str:
+    """
+    Convert a natural-language request into a Gmail search query string.
+
+    The model returns only the Gmail-compatible query so the email app can
+    retrieve relevant messages without hardcoding query construction in Python.
+    """
+    raw_response = _call_groq(
+        system_prompt=(
+            "You convert user requests into Gmail search queries.\n"
+            "Return ONLY the Gmail query string.\n"
+            "Do not return JSON, explanations, markdown, or quotes.\n\n"
+            "Use valid Gmail search operators only.\n"
+            "For exact dates, use after:YYYY/MM/DD before:YYYY/MM/DD.\n"
+            "Do NOT use date: because Gmail search does not support that operator.\n"
+            "When the user names a sender email address, prefer from:exact@email.com.\n"
+            "If the request includes both sender and date, combine them in one query.\n\n"
+            "Examples:\n"
+            "emails from last week -> newer_than:7d\n"
+            "email from professor -> from:professor\n"
+            "emails about internship -> internship\n"
+            "emails from HR last month -> from:hr newer_than:30d\n"
+            "email from student@internshala.com on 2025-02-10 -> from:student@internshala.com after:2025/02/09 before:2025/02/11\n"
+            "brief understanding of email sent by student@internshala.com on 10/02/2025 -> from:student@internshala.com after:2025/02/09 before:2025/02/11\n"
+        ),
+        user_prompt=(
+            "Generate the most relevant Gmail search query for this user request:\n\n"
+            f"{user_input}"
+        ),
+    )
+    return raw_response.strip().strip('"').strip("'")
+
+
+def should_reuse_existing_email_context(
+    user_input: str,
+    has_existing_email_context: bool,
+) -> bool:
+    """
+    Decide whether the user is referring to the already selected email.
+
+    This prevents follow-up questions such as "explain more about it" from
+    triggering a brand-new Gmail search when the user clearly means the email
+    that was just summarized or discussed.
+    """
+    if not has_existing_email_context:
+        return False
+
+    raw_response = _call_groq(
+        system_prompt=(
+            "You decide whether a user message refers to the currently selected email context.\n"
+            "Return ONLY valid JSON in this exact shape:\n"
+            '{"reuse_existing_email_context": true}\n'
+            "Rules:\n"
+            "- Return true when the message is a follow-up about the same email, such as "
+            '"explain more about it", "tell me more", "what does that mean", '
+            '"summarize it again", or similar pronoun-based follow-ups.\n'
+            "- Return false when the user is asking to fetch, list, or identify a different email.\n"
+            "- Return false when the user gives new sender, date, topic, or search constraints.\n"
+            "Do not return any explanation or extra text."
+        ),
+        user_prompt=f"User request:\n{user_input}",
+    )
+
+    parsed_response = _extract_json_object(raw_response)
+    return bool(parsed_response.get("reuse_existing_email_context", False))
 
 
 def summarize_email(email_text: str) -> str:
     """
-    Generate a concise summary of the latest email content.
+    Generate a concise summary of an existing email.
 
-    This function is called when the detected intent is `summarize` and asks
-    the model to focus on the key message, request, and any obvious next steps.
+    This handler focuses on the main message, key details, and requested
+    action in the selected email context.
     """
     return _call_groq(
         system_prompt=(
             "You summarize emails clearly and concisely. "
-            "Focus on the main message, important details, and any requested action."
+            "Focus on the main message, important details, and requested action."
         ),
         user_prompt=f"Summarize this email:\n\n{email_text}",
     )
@@ -126,15 +206,15 @@ def summarize_email(email_text: str) -> str:
 
 def answer_question(email_text: str, user_input: str) -> str:
     """
-    Answer the user's question using only the provided email context.
+    Answer a user question using only the provided email context.
 
-    This function is used for the `question_answering` intent and keeps the
-    response grounded in the latest email instead of inventing missing details.
+    This handler is used when the user asks about one retrieved email rather
+    than requesting a new draft or a list of emails.
     """
     return _call_groq(
         system_prompt=(
-            "You answer questions about an email using only the provided context. "
-            "If the answer is not supported by the email, say so clearly."
+            "You answer questions about an email using only the given email context. "
+            "If the email does not contain the answer, say that clearly."
         ),
         user_prompt=(
             f"Email context:\n{email_text}\n\n"
@@ -146,15 +226,15 @@ def answer_question(email_text: str, user_input: str) -> str:
 
 def draft_reply(email_text: str, user_input: str) -> str:
     """
-    Draft a reply email based on the user's instruction and email context.
+    Draft a reply to an existing email.
 
-    This function is used for the `draft_reply` intent and produces a reply
-    draft only. It does not send the email or trigger any external action.
+    This handler uses the retrieved email context plus the user's instruction
+    to produce a reply draft only. It does not send the email.
     """
     return _call_groq(
         system_prompt=(
             "You draft professional email replies. "
-            "Write a clear and relevant reply based on the provided email and user instruction."
+            "Write a clear reply based on the original email and the user's instruction."
         ),
         user_prompt=(
             f"Original email:\n{email_text}\n\n"
@@ -164,37 +244,107 @@ def draft_reply(email_text: str, user_input: str) -> str:
     )
 
 
-def process_user_query(user_input: str, latest_email: dict[str, Any]) -> dict[str, Any]:
+def compose_new_email(user_input: str) -> dict[str, str]:
     """
-    Detect the user's intent and route the request to the correct email helper.
+    Generate a brand-new email without relying on any retrieved email context.
 
-    The router combines the latest email metadata into prompt context, uses
-    Groq to detect one of the supported intents, then calls the matching
-    internal function and returns a structured response payload.
+    The model returns structured `to`, `subject`, and `body` fields so the UI
+    and send flow can reuse the generated draft.
     """
+    raw_response = _call_groq(
+        system_prompt=(
+            "You compose brand-new emails from user instructions.\n"
+            "Return ONLY valid JSON in this exact shape:\n"
+            '{\n'
+            '  "to": "recipient@example.com",\n'
+            '  "subject": "Subject line",\n'
+            '  "body": "Email body"\n'
+            '}\n'
+            "If no recipient email address is present in the user request, set `to` to an empty string.\n"
+            "Do not include markdown fences or explanations."
+        ),
+        user_prompt=(
+            "Write a complete new email from scratch based on this instruction:\n\n"
+            f"{user_input}"
+        ),
+    )
+
+    parsed_response = _extract_json_object(raw_response)
+    return {
+        "to": str(parsed_response.get("to", "")).strip(),
+        "subject": str(parsed_response.get("subject", "")).strip(),
+        "body": str(parsed_response.get("body", "")).strip(),
+    }
+
+
+def _format_composed_email(email_data: dict[str, str]) -> str:
+    """
+    Convert structured composed-email fields into one readable response string.
+
+    The dashboard expects a single chat response string, so this helper formats
+    the generated draft into a predictable To/Subject/Body block.
+    """
+    to_value = email_data.get("to", "")
+    subject = email_data.get("subject", "")
+    body = email_data.get("body", "")
+    return (
+        f"To: {to_value}\n"
+        f"Subject: {subject}\n\n"
+        f"{body}"
+    ).strip()
+
+
+def process_user_query(
+    user_input: str,
+    latest_email: dict[str, Any] | None = None,
+    detected_intent: str | None = None,
+    search_query: str | None = None,
+) -> dict[str, Any]:
+    """
+    Detect intent first, then route the request to the correct handler.
+
+    `fetch_emails` returns an AI-generated Gmail query for retrieval.
+    `compose_new_email` skips retrieved email context entirely.
+    All other intents use the provided email context.
+    """
+    intent = detected_intent or detect_intent(user_input)
+    resolved_search_query = search_query if search_query is not None else generate_email_search_query(user_input)
+
+    if intent == "fetch_emails":
+        return {
+            "intent": "fetch_emails",
+            "requires_action": False,
+            "search_query": resolved_search_query,
+        }
+
+    if intent == "compose_new_email":
+        composed_email = compose_new_email(user_input)
+        response_text = _format_composed_email(composed_email)
+        return {
+            "intent": intent,
+            "response": response_text,
+            "requires_action": True,
+            "email_data": composed_email,
+        }
+
     if not latest_email:
-            return {
-                "intent": "error",
-                "response": "No email context available.",
-                "requires_action": False,
-            }
-            
-    email_text = _build_email_context(latest_email)
-    intent = _detect_intent(user_input, latest_email)
+        return {
+            "intent": intent,
+            "response": "No email context available.",
+            "requires_action": False,
+            "search_query": resolved_search_query,
+        }
 
-    try:
-        if intent == "summarize":
-            response_text = summarize_email(email_text)
-        elif intent == "draft_reply":
-            response_text = draft_reply(email_text, user_input)
-        else:
-            response_text = answer_question(email_text, user_input)
-            intent = "question_answering"
-            
-    except Exception as e:
-        print("Error in routing:", str(e))
-        response_text = "Sorry, something went wrong while processing your request."
-        
+    email_text = _build_email_context(latest_email)
+
+    if intent == "summarize":
+        response_text = summarize_email(email_text)
+    elif intent == "draft_reply":
+        response_text = draft_reply(email_text, user_input)
+    else:
+        response_text = answer_question(email_text, user_input)
+        intent = "question_answering"
+
     if not response_text:
         response_text = "I couldn't generate a response. Please try again."
 
@@ -202,15 +352,16 @@ def process_user_query(user_input: str, latest_email: dict[str, Any]) -> dict[st
         "intent": intent,
         "response": response_text,
         "requires_action": intent == "draft_reply",
+        "search_query": resolved_search_query,
     }
 
 
 def analyze_email_content(email_text: str, action: str) -> dict[str, Any]:
     """
-    Provide a backward-compatible wrapper for older callers in this project.
+    Preserve compatibility for older callers that still pass raw email text.
 
-    Existing code can still call this helper with a raw email string and action
-    text, while the new implementation routes through `process_user_query`.
+    The wrapper converts the raw email string into the lightweight email
+    structure expected by `process_user_query`.
     """
     latest_email = {
         "subject": "",

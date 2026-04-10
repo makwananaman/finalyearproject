@@ -5,10 +5,19 @@ from django.urls import reverse
 from email.utils import parseaddr
 from googleapiclient.errors import HttpError
 
-from apps.ai_engine.email_ai_engine import process_user_query
+from apps.ai_engine.email_ai_engine import (
+    detect_intent,
+    generate_email_search_query,
+    process_user_query,
+    should_reuse_existing_email_context,
+)
 from .models import GmailCredential
 from .services.gmail_auth import exchange_code_for_tokens, get_authorization_url
-from .services.gmail_reader import fetch_recent_emails, get_gmail_service
+from .services.gmail_reader import (
+    fetch_emails_by_query,
+    fetch_recent_emails,
+    get_gmail_service,
+)
 from .services.gmail_sender import send_email
 
 def email_dashboard(request):
@@ -146,11 +155,11 @@ def fetch_emails_view(request):
 @login_required
 def email_chat_view(request):
     """
-    Fetch the latest email, send the prompt to the AI engine, and render chat output.
+    Route the user prompt to Email AI and fetch Gmail context only when needed.
 
-    This view keeps Gmail access in the email app and delegates reasoning to the
-    email AI engine. The latest email metadata is also stored in session so a
-    later send action can use the same reply target.
+    The view detects intent first. New-email composition skips Gmail fetching,
+    while summarize/question/reply requests load the latest email before
+    delegating reasoning to the AI engine.
     """
     if request.method != "POST":
         return redirect("email_dashboard")
@@ -163,41 +172,110 @@ def email_chat_view(request):
             {"error_message": "Enter a message before sending it to Email AI."},
         )
 
-    credential = GmailCredential.objects.filter(user=request.user).first()
-    if not credential:
+    intent = detect_intent(user_input)
+    search_query = generate_email_search_query(user_input)
+    latest_email = request.session.get("email_chat_latest_email")
+    emails = None
+    reuse_existing_context = should_reuse_existing_email_context(
+        user_input,
+        has_existing_email_context=bool(latest_email),
+    )
+
+    if intent == "fetch_emails":
+        credential = GmailCredential.objects.filter(user=request.user).first()
+        if not credential:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": "Gmail not connected.", "user_input": user_input},
+            )
+
+        try:
+            service = get_gmail_service(credential)
+            emails = fetch_emails_by_query(service, search_query, max_results=5)
+        except ValueError as exc:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": str(exc), "user_input": user_input},
+            )
+        except HttpError as exc:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": f"Gmail API request failed: {exc}", "user_input": user_input},
+            )
+
+        request.session.pop("email_chat_latest_email", None)
+        request.session.pop("email_chat_composed_email", None)
+        request.session["email_chat_user_input"] = user_input
+        request.session["email_chat_ai_response"] = ""
+        request.session["email_chat_intent"] = intent
+        request.session["email_chat_requires_action"] = False
+        request.session["email_chat_draft_text"] = ""
+
         return render(
             request,
             "email_ai/dashboard.html",
-            {"error_message": "Gmail not connected.", "user_input": user_input},
+            {
+                "user_input": user_input,
+                "intent": intent,
+                "requires_action": False,
+                "emails": emails,
+            },
         )
 
-    try:
-        service = get_gmail_service(credential)
-        emails = fetch_recent_emails(service, max_results=1)
-    except ValueError as exc:
-        return render(
-            request,
-            "email_ai/dashboard.html",
-            {"error_message": str(exc), "user_input": user_input},
-        )
-    except HttpError as exc:
-        return render(
-            request,
-            "email_ai/dashboard.html",
-            {"error_message": f"Gmail API request failed: {exc}", "user_input": user_input},
-        )
+    if intent != "compose_new_email" and not reuse_existing_context:
+        credential = GmailCredential.objects.filter(user=request.user).first()
+        if not credential:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": "Gmail not connected.", "user_input": user_input},
+            )
 
-    if not emails:
-        return render(
-            request,
-            "email_ai/dashboard.html",
-            {"error_message": "No recent emails found.", "user_input": user_input},
-        )
+        try:
+            service = get_gmail_service(credential)
+            emails = fetch_emails_by_query(service, search_query, max_results=5)
+        except ValueError as exc:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": str(exc), "user_input": user_input},
+            )
+        except HttpError as exc:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": f"Gmail API request failed: {exc}", "user_input": user_input},
+            )
 
-    latest_email = emails[0]
-    ai_result = process_user_query(user_input, latest_email)
+        if not emails:
+            return render(
+                request,
+                "email_ai/dashboard.html",
+                {"error_message": "No matching emails found.", "user_input": user_input},
+            )
 
-    request.session["email_chat_latest_email"] = latest_email
+        latest_email = emails[0]
+
+    ai_result = process_user_query(
+        user_input,
+        latest_email,
+        detected_intent=intent,
+        search_query=search_query,
+    )
+
+    if latest_email:
+        request.session["email_chat_latest_email"] = latest_email
+    else:
+        request.session.pop("email_chat_latest_email", None)
+
+    if ai_result.get("intent") == "compose_new_email":
+        request.session["email_chat_composed_email"] = ai_result.get("email_data", {})
+    else:
+        request.session.pop("email_chat_composed_email", None)
+
     request.session["email_chat_user_input"] = user_input
     request.session["email_chat_ai_response"] = ai_result.get("response", "")
     request.session["email_chat_intent"] = ai_result.get("intent", "")
@@ -246,27 +324,35 @@ def send_email_view(request):
             {"error_message": "Gmail not connected.", "draft_text": draft_text},
         )
 
+    composed_email = request.session.get("email_chat_composed_email") or {}
     latest_email = request.session.get("email_chat_latest_email")
-    if not latest_email:
+
+    if composed_email:
+        recipient_address = composed_email.get("to", "").strip()
+        subject = composed_email.get("subject", "").strip() or "New Email"
+    elif latest_email:
+        recipient_address = parseaddr(latest_email.get("sender", ""))[1]
+        subject = latest_email.get("subject", "").strip()
+        if subject and not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        elif not subject:
+            subject = "Re: Your email"
+    else:
         return render(
             request,
             "email_ai/dashboard.html",
             {"error_message": "No email context available for sending.", "draft_text": draft_text},
         )
 
-    recipient_address = parseaddr(latest_email.get("sender", ""))[1]
     if not recipient_address:
         return render(
             request,
             "email_ai/dashboard.html",
-            {"error_message": "Could not determine the recipient email address.", "draft_text": draft_text},
+            {
+                "error_message": "Could not determine the recipient email address.",
+                "draft_text": draft_text,
+            },
         )
-
-    subject = latest_email.get("subject", "").strip()
-    if subject and not subject.lower().startswith("re:"):
-        subject = f"Re: {subject}"
-    elif not subject:
-        subject = "Re: Your email"
 
     try:
         send_email(credential, recipient_address, subject, draft_text)
@@ -292,4 +378,5 @@ def send_email_view(request):
     request.session["email_chat_success_message"] = "Email sent successfully."
     request.session["email_chat_draft_text"] = ""
     request.session["email_chat_requires_action"] = False
+    request.session.pop("email_chat_composed_email", None)
     return redirect("email_dashboard")

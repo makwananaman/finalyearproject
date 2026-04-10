@@ -4,8 +4,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-
-GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+from .gmail_auth import GMAIL_SCOPES
 
 
 def get_gmail_service(credential):
@@ -28,7 +27,7 @@ def get_gmail_service(credential):
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=[GMAIL_READONLY_SCOPE],
+        scopes=GMAIL_SCOPES,
     )
 
     if credentials.expired and credentials.refresh_token:

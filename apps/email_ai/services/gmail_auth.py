@@ -5,6 +5,7 @@ from google_auth_oauthlib.flow import Flow
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
 ]
 
 

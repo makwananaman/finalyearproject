@@ -2,15 +2,33 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseBadRequest, HttpResponseServerError
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from email.utils import parseaddr
 from googleapiclient.errors import HttpError
 
+from apps.ai_engine.email_ai_engine import process_user_query
 from .models import GmailCredential
 from .services.gmail_auth import exchange_code_for_tokens, get_authorization_url
 from .services.gmail_reader import fetch_recent_emails, get_gmail_service
+from .services.gmail_sender import send_email
 
 def email_dashboard(request):
-    # Email AI dashboard
-    return render(request, 'email_ai/dashboard.html')
+    """
+    Render the Email AI dashboard and any temporary UI state kept in session.
+
+    The dashboard itself does not perform Gmail or AI work. It only displays
+    data produced by the dedicated action views.
+    """
+    context = {
+        "user_input": request.session.pop("email_chat_user_input", ""),
+        "ai_response": request.session.pop("email_chat_ai_response", ""),
+        "intent": request.session.pop("email_chat_intent", ""),
+        "requires_action": request.session.pop("email_chat_requires_action", False),
+        "success_message": request.session.pop("email_chat_success_message", ""),
+        "error_message": request.session.pop("email_chat_error_message", ""),
+        "draft_text": request.session.pop("email_chat_draft_text", ""),
+        "latest_email": request.session.get("email_chat_latest_email"),
+    }
+    return render(request, "email_ai/dashboard.html", context)
 
 
 @login_required
@@ -123,3 +141,155 @@ def fetch_emails_view(request):
         )
 
     return render(request, "email_ai/dashboard.html", {"emails": emails})
+
+
+@login_required
+def email_chat_view(request):
+    """
+    Fetch the latest email, send the prompt to the AI engine, and render chat output.
+
+    This view keeps Gmail access in the email app and delegates reasoning to the
+    email AI engine. The latest email metadata is also stored in session so a
+    later send action can use the same reply target.
+    """
+    if request.method != "POST":
+        return redirect("email_dashboard")
+
+    user_input = request.POST.get("user_input", "").strip()
+    if not user_input:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Enter a message before sending it to Email AI."},
+        )
+
+    credential = GmailCredential.objects.filter(user=request.user).first()
+    if not credential:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Gmail not connected.", "user_input": user_input},
+        )
+
+    try:
+        service = get_gmail_service(credential)
+        emails = fetch_recent_emails(service, max_results=1)
+    except ValueError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": str(exc), "user_input": user_input},
+        )
+    except HttpError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": f"Gmail API request failed: {exc}", "user_input": user_input},
+        )
+
+    if not emails:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "No recent emails found.", "user_input": user_input},
+        )
+
+    latest_email = emails[0]
+    ai_result = process_user_query(user_input, latest_email)
+
+    request.session["email_chat_latest_email"] = latest_email
+    request.session["email_chat_user_input"] = user_input
+    request.session["email_chat_ai_response"] = ai_result.get("response", "")
+    request.session["email_chat_intent"] = ai_result.get("intent", "")
+    request.session["email_chat_requires_action"] = ai_result.get("requires_action", False)
+    request.session["email_chat_draft_text"] = ai_result.get("response", "")
+
+    return render(
+        request,
+        "email_ai/dashboard.html",
+        {
+            "user_input": user_input,
+            "ai_response": ai_result.get("response", ""),
+            "intent": ai_result.get("intent", ""),
+            "requires_action": ai_result.get("requires_action", False),
+            "draft_text": ai_result.get("response", ""),
+            "latest_email": latest_email,
+        },
+    )
+
+
+@login_required
+def send_email_view(request):
+    """
+    Send the AI-generated draft through Gmail for the connected user.
+
+    The draft text comes from the form, while the latest email metadata is read
+    from session so the reply can be addressed to the sender of the email that
+    was just analyzed in the chat flow.
+    """
+    if request.method != "POST":
+        return redirect("email_dashboard")
+
+    draft_text = request.POST.get("draft_text", "").strip()
+    if not draft_text:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Draft text is required to send an email."},
+        )
+
+    credential = GmailCredential.objects.filter(user=request.user).first()
+    if not credential:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Gmail not connected.", "draft_text": draft_text},
+        )
+
+    latest_email = request.session.get("email_chat_latest_email")
+    if not latest_email:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "No email context available for sending.", "draft_text": draft_text},
+        )
+
+    recipient_address = parseaddr(latest_email.get("sender", ""))[1]
+    if not recipient_address:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": "Could not determine the recipient email address.", "draft_text": draft_text},
+        )
+
+    subject = latest_email.get("subject", "").strip()
+    if subject and not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    elif not subject:
+        subject = "Re: Your email"
+
+    try:
+        send_email(credential, recipient_address, subject, draft_text)
+    except ValueError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {"error_message": str(exc), "draft_text": draft_text},
+        )
+    except HttpError as exc:
+        return render(
+            request,
+            "email_ai/dashboard.html",
+            {
+                "error_message": (
+                    f"Email sending failed: {exc}. "
+                    "If you connected Gmail before send access was added, reconnect Gmail and try again."
+                ),
+                "draft_text": draft_text,
+            },
+        )
+
+    request.session["email_chat_success_message"] = "Email sent successfully."
+    request.session["email_chat_draft_text"] = ""
+    request.session["email_chat_requires_action"] = False
+    return redirect("email_dashboard")

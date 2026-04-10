@@ -6,4 +6,6 @@ urlpatterns = [
     path("gmail/connect/", views.connect_gmail, name="connect_gmail"),
     path("gmail/callback/", views.gmail_callback, name="gmail_callback"),
     path("gmail/fetch/", views.fetch_emails_view, name="fetch_emails"),
+    path("chat/", views.email_chat_view, name="email_chat"),
+    path("send/", views.send_email_view, name="send_email"),
 ]

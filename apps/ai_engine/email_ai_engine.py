@@ -8,7 +8,6 @@ from typing import Any
 
 from .groq_client import get_groq_client
 
-
 GROQ_MODEL = "llama-3.1-8b-instant"
 SUPPORTED_INTENTS = {
     "summarize",
@@ -16,6 +15,7 @@ SUPPORTED_INTENTS = {
     "draft_reply",
     "compose_new_email",
     "fetch_emails",
+    "conversation_intent",
 }
 
 
@@ -60,6 +60,27 @@ def _build_email_context(latest_email: dict[str, Any]) -> str:
     )
 
 
+def _build_chat_context(chat_context: list[dict[str, str]] | None) -> str:
+    """
+    Convert recent in-chat turns into a compact plain-text context block.
+
+    This is short-lived working memory for the current chat only. It is not
+    permanent history and should be limited to the active conversation.
+    """
+    if not chat_context:
+        return ""
+
+    lines: list[str] = []
+    for turn in chat_context:
+        role = "User" if turn.get("role") == "user" else "Assistant"
+        content = str(turn.get("content", "")).strip()
+        if not content:
+            continue
+        lines.append(f"{role}: {content}")
+
+    return "\n".join(lines)
+
+
 def _extract_json_object(raw_text: str) -> dict[str, Any]:
     """
     Parse a JSON object from model output and return an empty dict on failure.
@@ -82,7 +103,9 @@ def _extract_json_object(raw_text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def detect_intent(user_input: str) -> str:
+def detect_intent(
+    user_input: str, chat_context: list[dict[str, str]] | None = None
+) -> str:
     """
     Detect the user's email-related intent using only the user message.
 
@@ -101,23 +124,31 @@ def detect_intent(user_input: str) -> str:
             "- draft_reply: draft a reply to an existing email\n"
             "- compose_new_email: create a brand-new email not based on the latest email\n"
             "- fetch_emails: fetch or list relevant emails\n\n"
+            "- conversation_intent: normal conversation not requiring Gmail or email actions\n\n"
             "Rules:\n"
             "- If the user asks to list, show, fetch, get, or read emails without asking for analysis, return fetch_emails.\n"
+            "- If the user asks to draw up a schedule, create a plan, or manage tasks without explicitly asking to find or search for emails, return conversation_intent.\n"
             "- If the user asks for a summary, brief understanding, explanation, or what an email means, return summarize.\n"
             "- If the user asks a specific question about an email, return question_answering.\n"
             "- If the user asks for a reply to an existing email, return draft_reply.\n"
             '- If the user mentions a specific email address, "send email to", or "compose email", '
             "return compose_new_email only when the request is about creating a brand-new email.\n"
             "- Mentioning a sender email address to identify an existing email does NOT mean compose_new_email.\n"
+            "- If the request is general conversation and does not clearly require Gmail or an email workflow, return conversation_intent.\n"
+            '- Questions like "do you know anything other than these emails" or other meta-conversation about the assistant should return conversation_intent, not fetch_emails.\n'
+            "- Do NOT pretend to create integrations or sync with external services like Google Calendar.\n"
             "Do not return any explanation or extra text."
         ),
-        user_prompt=f"User request:\n{user_input}",
+        user_prompt=(
+            f"Recent chat context:\n{_build_chat_context(chat_context) or 'None'}\n\n"
+            f"User request:\n{user_input}"
+        ),
     )
 
     parsed_response = _extract_json_object(raw_response)
     intent = str(parsed_response.get("intent", "")).strip()
     if intent not in SUPPORTED_INTENTS:
-        return "question_answering"
+        return "conversation_intent"
     return intent
 
 
@@ -188,6 +219,40 @@ def should_reuse_existing_email_context(
     return bool(parsed_response.get("reuse_existing_email_context", False))
 
 
+def should_reuse_existing_draft_context(
+    user_input: str,
+    has_existing_draft_context: bool,
+) -> bool:
+    """
+    Decide whether the user is refining the currently composed email draft.
+
+    This keeps draft follow-ups such as "add this line", "make it longer", or
+    "give me the whole email in one" attached to the current draft instead of
+    misrouting them into Gmail retrieval.
+    """
+    if not has_existing_draft_context:
+        return False
+
+    raw_response = _call_groq(
+        system_prompt=(
+            "You decide whether a user message is a follow-up refinement of the current email draft.\n"
+            "Return ONLY valid JSON in this exact shape:\n"
+            '{"reuse_existing_draft_context": true}\n'
+            "Rules:\n"
+            "- Return true when the user is modifying or refining the current draft, such as "
+            '"add this line", "make it longer", "rewrite it", "give me the whole email", '
+            '"change the subject", or similar follow-ups.\n'
+            "- Return false when the user is asking about a different email or wants Gmail retrieval.\n"
+            "- Return false when the user starts a clearly unrelated new task.\n"
+            "Do not return any explanation or extra text."
+        ),
+        user_prompt=f"User request:\n{user_input}",
+    )
+
+    parsed_response = _extract_json_object(raw_response)
+    return bool(parsed_response.get("reuse_existing_draft_context", False))
+
+
 def summarize_email(email_text: str) -> str:
     """
     Generate a concise summary of an existing email.
@@ -201,6 +266,30 @@ def summarize_email(email_text: str) -> str:
             "Focus on the main message, important details, and requested action."
         ),
         user_prompt=f"Summarize this email:\n\n{email_text}",
+    )
+
+
+def handle_conversation(
+    user_input: str, chat_context: list[dict[str, str]] | None = None
+) -> str:
+    """
+    Answer a general conversation prompt without using Gmail context.
+
+    This handler is the safe fallback for prompts that are not clearly asking
+    for email retrieval, analysis, replying, or composition.
+    """
+    return _call_groq(
+        system_prompt=(
+            "You are a helpful assistant in a productivity app. "
+            "Answer the user's message directly and naturally. "
+            "Use recent chat context when it is relevant. "
+            "Do not pretend to fetch emails or rely on Gmail context. "
+            "Do NOT pretend to create integrations or sync with external services like Google Calendar."
+        ),
+        user_prompt=(
+            f"Recent chat context:\n{_build_chat_context(chat_context) or 'None'}\n\n"
+            f"User request:\n{user_input}"
+        ),
     )
 
 
@@ -244,7 +333,9 @@ def draft_reply(email_text: str, user_input: str) -> str:
     )
 
 
-def compose_new_email(user_input: str) -> dict[str, str]:
+def compose_new_email(
+    user_input: str, chat_context: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
     """
     Generate a brand-new email without relying on any retrieved email context.
 
@@ -255,15 +346,16 @@ def compose_new_email(user_input: str) -> dict[str, str]:
         system_prompt=(
             "You compose brand-new emails from user instructions.\n"
             "Return ONLY valid JSON in this exact shape:\n"
-            '{\n'
+            "{\n"
             '  "to": "recipient@example.com",\n'
             '  "subject": "Subject line",\n'
             '  "body": "Email body"\n'
-            '}\n'
+            "}\n"
             "If no recipient email address is present in the user request, set `to` to an empty string.\n"
             "Do not include markdown fences or explanations."
         ),
         user_prompt=(
+            f"Recent chat context:\n{_build_chat_context(chat_context) or 'None'}\n\n"
             "Write a complete new email from scratch based on this instruction:\n\n"
             f"{user_input}"
         ),
@@ -277,6 +369,52 @@ def compose_new_email(user_input: str) -> dict[str, str]:
     }
 
 
+def revise_composed_email(
+    existing_email_data: dict[str, str],
+    user_input: str,
+    chat_context: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """
+    Revise an existing drafted email based on the user's instruction.
+
+    This allows the app to keep draft continuity without sending full chat
+    history back to the model. Only the current draft and current instruction
+    are used.
+    """
+    raw_response = _call_groq(
+        system_prompt=(
+            "You revise an existing drafted email based on the user's instruction.\n"
+            "Return ONLY valid JSON in this exact shape:\n"
+            "{\n"
+            '  "to": "recipient@example.com",\n'
+            '  "subject": "Subject line",\n'
+            '  "body": "Email body"\n'
+            "}\n"
+            "Preserve useful existing content unless the user asks to replace it.\n"
+            "Do not include markdown fences or explanations."
+        ),
+        user_prompt=(
+            f"Recent chat context:\n{_build_chat_context(chat_context) or 'None'}\n\n"
+            "Current draft:\n"
+            f"To: {existing_email_data.get('to', '')}\n"
+            f"Subject: {existing_email_data.get('subject', '')}\n"
+            f"Body:\n{existing_email_data.get('body', '')}\n\n"
+            f"User instruction:\n{user_input}"
+        ),
+    )
+
+    parsed_response = _extract_json_object(raw_response)
+    return {
+        "to": str(parsed_response.get("to", existing_email_data.get("to", ""))).strip(),
+        "subject": str(
+            parsed_response.get("subject", existing_email_data.get("subject", ""))
+        ).strip(),
+        "body": str(
+            parsed_response.get("body", existing_email_data.get("body", ""))
+        ).strip(),
+    }
+
+
 def _format_composed_email(email_data: dict[str, str]) -> str:
     """
     Convert structured composed-email fields into one readable response string.
@@ -287,16 +425,14 @@ def _format_composed_email(email_data: dict[str, str]) -> str:
     to_value = email_data.get("to", "")
     subject = email_data.get("subject", "")
     body = email_data.get("body", "")
-    return (
-        f"To: {to_value}\n"
-        f"Subject: {subject}\n\n"
-        f"{body}"
-    ).strip()
+    return (f"To: {to_value}\nSubject: {subject}\n\n{body}").strip()
 
 
 def process_user_query(
     user_input: str,
     latest_email: dict[str, Any] | None = None,
+    composed_email: dict[str, str] | None = None,
+    chat_context: list[dict[str, str]] | None = None,
     detected_intent: str | None = None,
     search_query: str | None = None,
 ) -> dict[str, Any]:
@@ -307,8 +443,12 @@ def process_user_query(
     `compose_new_email` skips retrieved email context entirely.
     All other intents use the provided email context.
     """
-    intent = detected_intent or detect_intent(user_input)
-    resolved_search_query = search_query if search_query is not None else generate_email_search_query(user_input)
+    intent = detected_intent or detect_intent(user_input, chat_context=chat_context)
+    resolved_search_query = (
+        search_query
+        if search_query is not None
+        else generate_email_search_query(user_input)
+    )
 
     if intent == "fetch_emails":
         return {
@@ -317,14 +457,28 @@ def process_user_query(
             "search_query": resolved_search_query,
         }
 
+    if intent == "conversation_intent":
+        response_text = handle_conversation(user_input, chat_context=chat_context)
+        if not response_text:
+            response_text = "I couldn't generate a response. Please try again."
+        return {
+            "intent": "conversation_intent",
+            "response": response_text,
+            "requires_action": False,
+        }
+
     if intent == "compose_new_email":
-        composed_email = compose_new_email(user_input)
-        response_text = _format_composed_email(composed_email)
+        resolved_composed_email = (
+            revise_composed_email(composed_email, user_input, chat_context=chat_context)
+            if composed_email
+            else compose_new_email(user_input, chat_context=chat_context)
+        )
+        response_text = _format_composed_email(resolved_composed_email)
         return {
             "intent": intent,
             "response": response_text,
             "requires_action": True,
-            "email_data": composed_email,
+            "email_data": resolved_composed_email,
         }
 
     if not latest_email:

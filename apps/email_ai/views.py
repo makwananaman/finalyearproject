@@ -85,6 +85,40 @@ def _clear_chat_state(request):
     request.session.pop("email_chat_draft_text", None)
 
 
+def _draft_modal_context(request, body_fallback: str = "") -> dict[str, str]:
+    """
+    Build To / Subject / Body for the draft modal from session-backed state.
+
+    Composed new-email flows store structured fields; reply drafts rely on the
+    latest Gmail context plus the generated body text.
+    """
+    body_fallback = (body_fallback or "").strip()
+    composed = request.session.get("email_chat_composed_email") or {}
+    latest = request.session.get("email_chat_latest_email") or {}
+
+    if composed:
+        return {
+            "draft_to": str(composed.get("to", "")).strip(),
+            "draft_subject": str(composed.get("subject", "")).strip(),
+            "draft_body": str(composed.get("body", "")).strip() or body_fallback,
+        }
+
+    if latest:
+        recipient = parseaddr(latest.get("sender", ""))[1]
+        subject = str(latest.get("subject", "")).strip()
+        if subject and not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        elif not subject:
+            subject = "Re: Your email"
+        return {
+            "draft_to": recipient,
+            "draft_subject": subject,
+            "draft_body": body_fallback,
+        }
+
+    return {"draft_to": "", "draft_subject": "", "draft_body": body_fallback}
+
+
 def _is_ajax_request(request):
     """
     Detect whether the frontend expects an incremental JSON response.
@@ -103,12 +137,26 @@ def _chat_response(request, payload, status=200):
     normal form post fallback.
     """
     if _is_ajax_request(request):
-        return JsonResponse(payload, status=status)
+        ajax_payload = dict(payload)
+        if ajax_payload.get("requires_action"):
+            ajax_payload.update(
+                _draft_modal_context(request, ajax_payload.get("draft_text", ""))
+            )
+        return JsonResponse(ajax_payload, status=status)
 
+    requires = bool(payload.get("requires_action", False))
+    draft_text_val = payload.get("draft_text", "")
+    draft_ctx = (
+        _draft_modal_context(request, draft_text_val)
+        if requires
+        else {"draft_to": "", "draft_subject": "", "draft_body": ""}
+    )
     context = {
         "chat_turns": _get_chat_turns(request),
-        "requires_action": payload.get("requires_action", False),
-        "draft_text": payload.get("draft_text", ""),
+        "requires_action": requires,
+        "draft_to": draft_ctx["draft_to"],
+        "draft_subject": draft_ctx["draft_subject"],
+        "draft_body": draft_ctx["draft_body"],
         "success_message": payload.get("success_message", ""),
         "error_message": payload.get("error_message", ""),
     }
@@ -145,12 +193,21 @@ def email_dashboard(request):
     The dashboard itself does not perform Gmail or AI work. It only displays
     chat turns, current draft state, and transient success or error messages.
     """
+    requires_action = bool(request.session.pop("email_chat_requires_action", False))
+    draft_stored = request.session.pop("email_chat_draft_text", "")
+    draft_ctx = (
+        _draft_modal_context(request, draft_stored)
+        if requires_action
+        else {"draft_to": "", "draft_subject": "", "draft_body": ""}
+    )
     context = {
         "chat_turns": _get_chat_turns(request),
-        "requires_action": request.session.pop("email_chat_requires_action", False),
+        "requires_action": requires_action,
+        "draft_to": draft_ctx["draft_to"],
+        "draft_subject": draft_ctx["draft_subject"],
+        "draft_body": draft_ctx["draft_body"],
         "success_message": request.session.pop("email_chat_success_message", ""),
         "error_message": request.session.pop("email_chat_error_message", ""),
-        "draft_text": request.session.pop("email_chat_draft_text", ""),
     }
     return render(request, "email_ai/dashboard.html", context)
 

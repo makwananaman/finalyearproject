@@ -1,241 +1,139 @@
 {% extends 'base.html' %}
+{% block body_class %}email-ai-page{% endblock %}
+
+{% block sidebar_email_actions %}
+<button
+    type="button"
+    class="app-sidebar-link app-sidebar-new-chat"
+    aria-label="New chat"
+>
+    <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+    >
+        <path d="M12 5v14M5 12h14"></path>
+    </svg>
+    <span>New chat</span>
+</button>
+{% endblock %}
+
 {% block content %}
-<h2>Email AI Dashboard</h2>
-<div class="mb-3">
-    <a href="{% url 'connect_gmail' %}" class="btn btn-primary">
-        Connect Gmail
-    </a>
-    <form id="new-chat-form" method="post" action="{% url 'new_chat' %}" class="d-inline">
+<div class="chat-wrapper">
+    <form
+        id="new-chat-form"
+        method="post"
+        action="{% url 'new_chat' %}"
+        class="d-none"
+        aria-hidden="true"
+    >
         {% csrf_token %}
-        <button type="submit" class="btn btn-outline-secondary">New Chat</button>
     </form>
-</div>
 
-<div id="chat-status">
-    {% if error_message %}
-    <div class="alert alert-warning mt-3">
-        {{ error_message }}
+    <div id="chat-status" class="chat-status">
+        {% if error_message %}
+        <div class="email-ai-alert email-ai-alert--warn">{{ error_message }}</div>
+        {% endif %}
+
+        {% if success_message %}
+        <div class="email-ai-alert email-ai-alert--ok">{{ success_message }}</div>
+        {% endif %}
     </div>
-    {% endif %}
 
-    {% if success_message %}
-    <div class="alert alert-success mt-3">
-        {{ success_message }}
+    <div id="chat-messages" class="chat-messages">
+        {% if chat_turns %}
+            {% for turn in chat_turns %}
+            <div class="{% if turn.role == 'user' %}user-message{% else %}ai-message{% endif %}">
+                <div class="message-box">{{ turn.content }}</div>
+            </div>
+            {% endfor %}
+        {% else %}
+        <p class="email-ai-empty-hint">
+            Ask about your inbox or say what you want to write — I’ll help with Gmail-aware replies and drafts.
+        </p>
+        {% endif %}
     </div>
-    {% endif %}
-</div>
 
-<div class="card mt-4">
-    <div class="card-header">
-        Email AI Chat
-    </div>
-    <div class="card-body">
-        <div
-            id="chat-messages"
-            class="border rounded p-3 bg-light mb-4"
-            style="min-height: 360px; max-height: 560px; overflow-y: auto;"
-        >
-            {% if chat_turns %}
-                {% for turn in chat_turns %}
-                <div class="mb-3">
-                    <h6 class="mb-1">
-                        {% if turn.role == "user" %}You{% else %}Email AI{% endif %}
-                    </h6>
-                    <pre class="mb-0" style="white-space: pre-wrap;">{{ turn.content }}</pre>
-                </div>
-                {% endfor %}
-            {% else %}
-            <p class="text-muted mb-0">Start the conversation by asking about an email or asking Email AI to draft one.</p>
-            {% endif %}
-        </div>
-
-        <form id="chat-form" method="post" action="{% url 'email_chat' %}">
-            {% csrf_token %}
-            <label for="user_input" class="form-label">Message</label>
-            <div class="input-group">
+    <div class="chat-input-container">
+        <div class="chat-input-inner">
+            <form id="chat-form" method="post" action="{% url 'email_chat' %}" class="chat-composer-form">
+                {% csrf_token %}
                 <input
-                    id="user_input"
                     type="text"
                     name="user_input"
-                    class="form-control"
-                    placeholder="Ask Email AI about an email or ask it to write one"
-                >
-                <button id="chat-submit" type="submit" class="btn btn-dark">Send</button>
-            </div>
-        </form>
+                    id="user_input"
+                    class="chat-input-field"
+                    placeholder="Message Email AI"
+                    autocomplete="off"
+                    aria-label="Message"
+                />
+                <button type="submit" class="chat-send-btn" aria-label="Send message">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                            fill="currentColor"
+                            d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
+                        />
+                    </svg>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
 
+<div
+    id="email-ai-draft-modal"
+    class="email-ai-draft-modal{% if requires_action %} is-open{% endif %}"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="email-ai-draft-title"
+    {% if not requires_action %}aria-hidden="true"{% else %}aria-hidden="false"{% endif %}
+>
+    <div class="email-ai-draft-modal__backdrop" tabindex="-1"></div>
+    <div class="email-ai-draft-modal__panel">
+        <div class="email-ai-draft-modal__header">
+            <h2 id="email-ai-draft-title" class="email-ai-draft-modal__title">Draft Email</h2>
+            <button
+                type="button"
+                class="email-ai-draft-modal__close"
+                aria-label="Close draft"
+            >
+                &times;
+            </button>
+        </div>
         <form
             id="send-email-form"
             method="post"
             action="{% url 'send_email' %}"
-            class="mt-4"
-            {% if not requires_action %}style="display: none;"{% endif %}
+            class="email-ai-draft-modal__form"
         >
             {% csrf_token %}
-            <label for="draft_text" class="form-label">Draft Reply</label>
-            <textarea id="draft_text" name="draft_text" class="form-control" rows="8">{{ draft_text }}</textarea>
-            <button type="submit" class="btn btn-success mt-3">Send Email</button>
+            <div class="email-ai-draft-modal__field">
+                <span class="email-ai-draft-modal__label">To</span>
+                <p class="email-ai-draft-modal__value" id="draft-modal-to">{{ draft_to }}</p>
+            </div>
+            <div class="email-ai-draft-modal__field">
+                <span class="email-ai-draft-modal__label">Subject</span>
+                <p class="email-ai-draft-modal__value" id="draft-modal-subject">{{ draft_subject }}</p>
+            </div>
+            <div class="email-ai-draft-modal__field email-ai-draft-modal__field--grow">
+                <label class="email-ai-draft-modal__label" for="draft_text">Body</label>
+                <textarea
+                    id="draft_text"
+                    name="draft_text"
+                    class="email-ai-draft-modal__textarea"
+                    rows="12"
+                >{{ draft_body }}</textarea>
+            </div>
+            <div class="email-ai-draft-modal__actions">
+                <button type="submit" class="btn btn-success email-ai-draft-modal__send">
+                    Send via Gmail
+                </button>
+            </div>
         </form>
     </div>
 </div>
-
-<script>
-(() => {
-    const chatForm = document.getElementById("chat-form");
-    const chatInput = document.getElementById("user_input");
-    const chatMessages = document.getElementById("chat-messages");
-    const chatStatus = document.getElementById("chat-status");
-    const chatSubmit = document.getElementById("chat-submit");
-    const sendEmailForm = document.getElementById("send-email-form");
-    const draftText = document.getElementById("draft_text");
-    const newChatForm = document.getElementById("new-chat-form");
-
-    function scrollChatToBottom() {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    function clearStatus() {
-        chatStatus.innerHTML = "";
-    }
-
-    function setStatus(kind, message) {
-        const alertClass = kind === "success" ? "alert-success" : "alert-warning";
-        chatStatus.innerHTML = `<div class="alert ${alertClass} mt-3">${message}</div>`;
-    }
-
-    function appendTurn(label, content) {
-        const emptyText = chatMessages.querySelector(".text-muted");
-        if (emptyText) {
-            emptyText.remove();
-        }
-
-        const wrapper = document.createElement("div");
-        wrapper.className = "mb-3";
-        wrapper.innerHTML = `
-            <h6 class="mb-1">${label}</h6>
-            <pre class="mb-0" style="white-space: pre-wrap;"></pre>
-        `;
-        wrapper.querySelector("pre").textContent = content;
-        chatMessages.appendChild(wrapper);
-        scrollChatToBottom();
-    }
-
-    function resetChatUI() {
-        chatMessages.innerHTML = '<p class="text-muted mb-0">Start the conversation by asking about an email or asking Email AI to draft one.</p>';
-        sendEmailForm.style.display = "none";
-        draftText.value = "";
-        clearStatus();
-    }
-
-    chatForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const message = chatInput.value.trim();
-        if (!message) {
-            setStatus("error", "Enter a message before sending it to Email AI.");
-            return;
-        }
-
-        clearStatus();
-        const formData = new FormData(chatForm);
-        appendTurn("You", message);
-        chatInput.value = "";
-        chatSubmit.disabled = true;
-
-        try {
-            const response = await fetch(chatForm.action, {
-                method: "POST",
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                body: formData,
-            });
-
-            const payload = await response.json();
-            if (!response.ok) {
-                chatMessages.lastElementChild?.remove();
-                setStatus("error", payload.error_message || "Unable to process your request.");
-                return;
-            }
-
-            if (payload.assistant_turn) {
-                appendTurn("Email AI", payload.assistant_turn);
-            }
-
-            if (payload.requires_action) {
-                sendEmailForm.style.display = "";
-                draftText.value = payload.draft_text || payload.assistant_turn || "";
-            } else {
-                sendEmailForm.style.display = "none";
-                draftText.value = "";
-            }
-        } catch (error) {
-            chatMessages.lastElementChild?.remove();
-            setStatus("error", "A network error occurred while contacting Email AI.");
-        } finally {
-            chatSubmit.disabled = false;
-            chatInput.focus();
-        }
-    });
-
-    sendEmailForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        clearStatus();
-
-        const formData = new FormData(sendEmailForm);
-
-        try {
-            const response = await fetch(sendEmailForm.action, {
-                method: "POST",
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                body: formData,
-            });
-
-            const payload = await response.json();
-            if (!response.ok) {
-                setStatus("error", payload.error_message || "Unable to send the email.");
-                return;
-            }
-
-            if (payload.success_message) {
-                setStatus("success", payload.success_message);
-            }
-
-            sendEmailForm.style.display = "none";
-            draftText.value = "";
-        } catch (error) {
-            setStatus("error", "A network error occurred while sending the email.");
-        }
-    });
-
-    newChatForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-
-        const formData = new FormData(newChatForm);
-
-        try {
-            const response = await fetch(newChatForm.action, {
-                method: "POST",
-                headers: {
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                setStatus("error", "Unable to start a new chat right now.");
-                return;
-            }
-
-            resetChatUI();
-            chatInput.focus();
-        } catch (error) {
-            setStatus("error", "A network error occurred while starting a new chat.");
-        }
-    });
-
-    scrollChatToBottom();
-})();
-</script>
 {% endblock %}

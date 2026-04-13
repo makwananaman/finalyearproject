@@ -392,6 +392,411 @@ ul.errorlist {
     transform: translateX(0);
 }
 
+/* --- Email AI: Gemini / ChatGPT-style full-viewport chat --- */
+
+body.email-ai-page {
+    background: #cfd8e3;
+}
+
+.email-ai-page .landing-shell.app-shell {
+    background: #cfd8e3;
+    border-bottom: 1px solid #d7dee8;
+}
+
+.email-ai-page .landing-brand,
+.email-ai-page .landing-nav-links a {
+    color: #1f2937;
+}
+
+.email-ai-page .meetings-icon-button {
+    color: #1f2937;
+}
+
+.email-ai-page .app-content {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+}
+
+/* Sidebar: New chat (Email AI page only, via template block) */
+button.app-sidebar-link {
+    border: none;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+}
+
+button.app-sidebar-link:focus-visible {
+    outline: 2px solid rgba(31, 78, 121, 0.45);
+    outline-offset: 2px;
+}
+
+.chat-wrapper {
+    min-height: calc(100dvh - 76px);
+    display: flex;
+    flex-direction: column;
+    background: #cfd8e3;
+}
+
+.chat-status {
+    flex-shrink: 0;
+    max-width: 52rem;
+    width: 100%;
+    margin: 0 auto;
+    padding: 12px 20px 0;
+    box-sizing: border-box;
+}
+
+.email-ai-alert {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.email-ai-alert--warn {
+    background: #fff7db;
+    color: #8a5a00;
+    border: 1px solid #f3d37a;
+}
+
+.email-ai-alert--ok {
+    background: #e8f7ef;
+    color: #156c43;
+    border: 1px solid #9fd8ba;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 0 140px;
+    max-width: 52rem;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.email-ai-empty-hint {
+    text-align: center;
+    color: #667085;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    max-width: 28rem;
+    margin: 3rem auto 0;
+    padding: 0 20px;
+}
+
+.user-message {
+    text-align: right;
+    margin: 12px 20px;
+}
+
+.ai-message {
+    text-align: left;
+    margin: 12px 20px;
+}
+
+.message-box {
+    display: inline-block;
+    padding: 11px 16px;
+    border-radius: 22px;
+    max-width: min(85%, 42rem);
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.user-message .message-box {
+    background: #1a73e8;
+    color: #ffffff;
+}
+
+.ai-message .message-box {
+    background: #ffffff;
+    color: #1f2937;
+    border: 1px solid #d7dee8;
+}
+
+/* Typing animation */
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 16px;
+    background: #ffffff;
+    border: 1px solid #d7dee8;
+    border-radius: 20px;
+    width: fit-content;
+    margin: 12px 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.typing-dot {
+    width: 6px;
+    height: 6px;
+    background: #98a2b3;
+    border-radius: 50%;
+    animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing-bounce {
+    0%,
+    80%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.4;
+    }
+    40% {
+        transform: translateY(-4px);
+        opacity: 1;
+    }
+}
+
+.chat-input-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: linear-gradient(to top, #cfd8e3 70%, rgba(207, 216, 227, 0));
+    padding: 20px 16px 20px;
+    box-sizing: border-box;
+    z-index: 15;
+}
+
+.app-with-sidebar.email-ai-page .chat-input-container {
+    left: 108px;
+    width: calc(100% - 108px);
+}
+
+.chat-input-inner {
+    max-width: 52rem;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.chat-composer-form {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #ffffff;
+    border: 1px solid #d7dee8;
+    border-radius: 28px;
+    padding: 6px 8px 6px 16px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.chat-composer-form:focus-within {
+    border-color: #8ab4f8;
+    box-shadow: 0 0 0 1px rgba(138, 180, 248, 0.35);
+}
+
+.chat-input-field {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+    background: transparent;
+    color: #1f2937;
+    padding: 10px 0;
+}
+
+.chat-input-field::placeholder {
+    color: #98a2b3;
+}
+
+.chat-send-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: #1a73e8;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background 0.15s ease,
+        transform 0.1s ease;
+}
+
+.chat-send-btn:hover {
+    background: #1967d2;
+}
+
+.chat-send-btn:active {
+    transform: scale(0.96);
+}
+
+.chat-send-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.chat-send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Draft email modal */
+.email-ai-draft-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    box-sizing: border-box;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+        opacity 0.2s ease,
+        visibility 0.2s ease;
+}
+
+.email-ai-draft-modal.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.email-ai-draft-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+}
+
+.email-ai-draft-modal__panel {
+    position: relative;
+    width: 100%;
+    max-width: 560px;
+    max-height: calc(100dvh - 48px);
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+.email-ai-draft-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid #e8eaed;
+}
+
+.email-ai-draft-modal__title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #202124;
+}
+
+.email-ai-draft-modal__close {
+    border: none;
+    background: transparent;
+    font-size: 1.75rem;
+    line-height: 1;
+    color: #5f6368;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 8px;
+    line-height: 0.85;
+}
+
+.email-ai-draft-modal__close:hover {
+    background: #f1f3f4;
+    color: #202124;
+}
+
+.email-ai-draft-modal__form {
+    padding: 16px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    max-height: calc(100dvh - 140px);
+}
+
+.email-ai-draft-modal__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.email-ai-draft-modal__field--grow {
+    flex: 1;
+    min-height: 0;
+}
+
+.email-ai-draft-modal__label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #5f6368;
+}
+
+.email-ai-draft-modal__value {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #202124;
+    word-break: break-word;
+}
+
+.email-ai-draft-modal__textarea {
+    width: 100%;
+    min-height: 200px;
+    resize: vertical;
+    border: 1px solid #dadce0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: #202124;
+    box-sizing: border-box;
+}
+
+.email-ai-draft-modal__textarea:focus {
+    outline: none;
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+.email-ai-draft-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.email-ai-draft-modal__send {
+    border-radius: 999px;
+    padding: 10px 22px;
+    font-weight: 600;
+}
+
 .nav-outline,
 .nav-solid,
 .hero-primary,
@@ -641,6 +1046,11 @@ ul.errorlist {
     .app-with-sidebar .feature-band,
     .app-with-sidebar .app-content {
         padding-left: 16px;
+    }
+
+    .app-with-sidebar.email-ai-page .chat-input-container {
+        left: 0;
+        width: 100%;
     }
 
     .app-sidebar {

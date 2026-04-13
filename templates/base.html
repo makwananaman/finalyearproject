@@ -12,7 +12,7 @@
         />
         <link
             rel="stylesheet"
-            href="{% static 'css/style.css' %}?v=20260330-auth-sidebar"
+            href="{% static 'css/style.css' %}?v=20260413-email-ai-gemini"
         />
     </head>
     <body
@@ -20,7 +20,9 @@
     >
         <header class="landing-shell app-shell">
             <nav class="landing-nav">
-                <a class="landing-brand" href="/">Meetings AI</a>
+                <a class="landing-brand" href="/"
+                    >Meetings &amp; Productivity AI</a
+                >
                 <div class="landing-nav-links">
                     <a href="/dashboard/">Dashboard</a>
                     {% if request.user.is_authenticated %}
@@ -105,10 +107,11 @@
                 </svg>
                 <span>Email AI</span>
             </a>
+            {% block sidebar_email_actions %}{% endblock %}
         </aside>
         {% endif %}
         <main class="app-content">{% block content %}{% endblock %}</main>
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-        <script src="{% static 'js/main.js' %}?v=20260330-auth-sidebar"></script>
+        <script src="{% static 'js/main.js' %}?v=20260413-email-ai-gemini"></script>
     </body>
 </html>

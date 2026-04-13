@@ -9,8 +9,7 @@
             <p class="hero-kicker">Settings</p>
             <h2>Manage how you access the Meetings & Productivity AI workspace.</h2>
             <p>
-                Use this page as the starting point for account-level settings and
-                session controls.
+                Use this page for account-level settings, integrations, and session controls.
             </p>
         </div>
         <div class="auth-form-container">
@@ -21,6 +20,15 @@
                 {% csrf_token %}
                 <button type="submit" class="btn-auth">Log Out</button>
             </form>
+
+            <hr class="my-4" />
+
+            <h4 class="mb-3">Integrations</h4>
+            {% if gmail_connected %}
+            <p class="mb-0">Gmail Connected ✅</p>
+            {% else %}
+            <a href="{% url 'connect_gmail' %}" class="btn btn-primary">Connect Gmail</a>
+            {% endif %}
         </div>
     </div>
 </section>

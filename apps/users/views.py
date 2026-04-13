@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.shortcuts import redirect, render
 
+from apps.email_ai.models import GmailCredential
+
 
 def register_view(request):
     if request.method == "POST":
@@ -25,4 +27,9 @@ def profile_view(request):
 
 @login_required
 def settings_view(request):
-    return render(request, "users/settings.html")
+    gmail_connected = GmailCredential.objects.filter(user=request.user).exists()
+    return render(
+        request,
+        "users/settings.html",
+        {"gmail_connected": gmail_connected},
+    )

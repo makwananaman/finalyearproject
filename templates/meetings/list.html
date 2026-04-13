@@ -1,22 +1,49 @@
-{% extends 'base.html' %}
-{% block content %}
+{% extends 'base.html' %} {% block content %}
 <section class="meetings-page-shell">
-    <form id="meetings-form" method="post" enctype="multipart/form-data" class="meetings-workspace">
+    <form
+        id="meetings-form"
+        method="post"
+        enctype="multipart/form-data"
+        class="meetings-workspace"
+    >
         {% csrf_token %}
 
         <div class="meetings-input-grid">
-            <label class="meetings-input-card meetings-upload-card" for="meeting-file">
-                <input id="meeting-file" name="meeting_file" type="file" class="meetings-file-input" accept=".txt,.mp3">
+            <label
+                class="meetings-input-card meetings-upload-card"
+                for="meeting-file"
+            >
+                <input
+                    id="meeting-file"
+                    name="meeting_file"
+                    type="file"
+                    class="meetings-file-input"
+                    accept=".txt,.mp3"
+                />
                 <div class="meetings-upload-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                        ></path>
                         <polyline points="17 8 12 3 7 8"></polyline>
                         <line x1="12" y1="3" x2="12" y2="15"></line>
                     </svg>
                 </div>
                 <h2>Upload meeting file</h2>
-                <p>Drag and drop a transcript or audio file here, or click to browse.</p>
-                <span class="meetings-upload-meta" id="meeting-file-label">Supports `.txt` and `.mp3`</span>
+                <p>
+                    Drag and drop a transcript or audio file here, or click to
+                    browse.
+                </p>
+                <span class="meetings-upload-meta" id="meeting-file-label"
+                    >Supports `.txt` and `.mp3`</span
+                >
             </label>
 
             <div class="meetings-or-separator" aria-hidden="true">
@@ -28,142 +55,196 @@
                     <h2>Paste meeting text</h2>
                     <span>Structured transcript JSON</span>
                 </div>
-                <textarea id="transcript" name="transcript" class="meetings-text-input" spellcheck="false" placeholder='[{"speaker":"speaker_1","timestamp":"00:00:10","text":"..."}]'>{{ transcript_input }}</textarea>
+                <textarea
+                    id="transcript"
+                    name="transcript"
+                    class="meetings-text-input"
+                    spellcheck="false"
+                    placeholder='[{"speaker":"speaker_1","timestamp":"00:00:10","text":"..."}]'
+                >
+{{ transcript_input }}</textarea
+                >
             </div>
         </div>
 
-        <button id="meetings-submit-button" type="submit" class="meetings-analyze-button">Analyze Meeting</button>
+        <button
+            id="meetings-submit-button"
+            type="submit"
+            class="meetings-analyze-button"
+        >
+            Analyze Meeting
+        </button>
 
-        <div id="meetings-inline-alert" class="meetings-inline-alert {% if not error_message %}is-hidden{% endif %}" role="alert">
+        <div id="meeting-ajax-status" class="meeting-ajax-status is-hidden">
+            <span class="status-spinner"></span>
+            <span id="status-text">Ready to analyze</span>
+        </div>
+
+        <div
+            id="meetings-inline-alert"
+            class="meetings-inline-alert {% if not error_message %}is-hidden{% endif %}"
+            role="alert"
+        >
             {{ error_message }}
         </div>
     </form>
 
-    <section class="meetings-status-card" aria-label="Processing status">
-        <div id="meeting-status-step-input" class="meetings-status-step {% if result %}is-complete{% else %}is-active{% endif %}">
-            <span class="meetings-status-dot">1</span>
-            <div>
-                <strong>Input Ready</strong>
-                <p>Transcript or file supplied for analysis.</p>
-            </div>
-        </div>
-        <div id="meeting-status-line-1" class="meetings-status-line {% if result %}is-complete{% endif %}"></div>
-        <div id="meeting-status-step-processing" class="meetings-status-step {% if result %}is-complete{% else %}is-pending{% endif %}">
-            <span class="meetings-status-dot">2</span>
-            <div>
-                <strong>Processing</strong>
-                <p>Meeting pipeline and AI engine run here.</p>
-            </div>
-        </div>
-        <div id="meeting-status-line-2" class="meetings-status-line {% if result %}is-complete{% endif %}"></div>
-        <div id="meeting-status-step-results" class="meetings-status-step {% if result %}is-active{% else %}is-pending{% endif %}">
-            <span class="meetings-status-dot">3</span>
-            <div>
-                <strong>Results</strong>
-                <p>Summary, tasks, and urgent follow-up items appear below.</p>
-            </div>
-        </div>
-    </section>
-
     <section class="meetings-results-shell">
         <div class="meetings-tabs" role="tablist" aria-label="Meeting results">
-            <button type="button" class="meetings-tab-button is-active" data-tab-target="summary-panel" role="tab" aria-selected="true">Summary</button>
-            <button type="button" class="meetings-tab-button" data-tab-target="tasks-panel" role="tab" aria-selected="false">Tasks</button>
-            <button type="button" class="meetings-tab-button" data-tab-target="high-priority-panel" role="tab" aria-selected="false">High Priority Tasks</button>
+            <button
+                type="button"
+                class="meetings-tab-button is-active"
+                data-tab-target="summary-panel"
+                role="tab"
+                aria-selected="true"
+            >
+                Summary
+            </button>
+            <button
+                type="button"
+                class="meetings-tab-button"
+                data-tab-target="tasks-panel"
+                role="tab"
+                aria-selected="false"
+            >
+                Tasks
+            </button>
+            <button
+                type="button"
+                class="meetings-tab-button"
+                data-tab-target="high-priority-panel"
+                role="tab"
+                aria-selected="false"
+            >
+                High Priority Tasks
+            </button>
         </div>
 
         <div class="meetings-tab-panels">
-            <section id="summary-panel" class="meetings-tab-panel is-active" role="tabpanel">
+            <section
+                id="summary-panel"
+                class="meetings-tab-panel is-active"
+                role="tabpanel"
+            >
                 <div class="meetings-result-surface">
                     <div class="meetings-result-heading">
                         <div>
                             <p class="hero-kicker mb-2">Summary</p>
                             <h3>Discussion highlights</h3>
                         </div>
-                        <span id="summary-count" class="meetings-result-count {% if not result %}is-hidden{% endif %}">
-                            {% if result %}
-                                {{ result.summary|length }} points
+                        <span
+                            id="summary-count"
+                            class="meetings-result-count {% if not result %}is-hidden{% endif %}"
+                        >
+                            {% if result %} {{ result.summary|length }} points
                             {% endif %}
                         </span>
                     </div>
 
                     <div id="summary-content">
                         {% if result and result.summary %}
-                            <ul class="meetings-summary-list">
-                                {% for point in result.summary %}
-                                    <li>{{ point }}</li>
-                                {% endfor %}
-                            </ul>
+                        <ul class="meetings-summary-list">
+                            {% for point in result.summary %}
+                            <li>{{ point }}</li>
+                            {% endfor %}
+                        </ul>
                         {% else %}
-                            <p class="meetings-empty-copy">Run the analysis to view a clean summary of decisions and important discussion.</p>
+                        <p class="meetings-empty-copy">
+                            Run the analysis to view a clean summary of
+                            decisions and important discussion.
+                        </p>
                         {% endif %}
                     </div>
                 </div>
             </section>
 
-            <section id="tasks-panel" class="meetings-tab-panel" role="tabpanel" hidden>
+            <section
+                id="tasks-panel"
+                class="meetings-tab-panel"
+                role="tabpanel"
+                hidden
+            >
                 <div class="meetings-result-surface">
                     <div class="meetings-result-heading">
                         <div>
                             <p class="hero-kicker mb-2">Tasks</p>
                             <h3>Action items</h3>
                         </div>
-                        <span id="tasks-count" class="meetings-result-count {% if not result %}is-hidden{% endif %}">
-                            {% if result %}
-                                {{ result.tasks|length }} tasks
-                            {% endif %}
+                        <span
+                            id="tasks-count"
+                            class="meetings-result-count {% if not result %}is-hidden{% endif %}"
+                        >
+                            {% if result %} {{ result.tasks|length }} tasks {% endif %}
                         </span>
                     </div>
 
                     <div id="tasks-content">
                         {% if result and result.tasks %}
-                            <div class="meetings-task-list">
-                                {% for task in result.tasks %}
-                                    <article class="meetings-task-row">
-                                        <div class="meetings-task-main">
-                                            <strong>{{ task.task }}</strong>
-                                            <span>{{ task.owner }}</span>
-                                        </div>
-                                        <span class="meetings-task-priority meetings-priority-{{ task.priority|lower }}">{{ task.priority }}</span>
-                                    </article>
-                                {% endfor %}
-                            </div>
+                        <div class="meetings-task-list">
+                            {% for task in result.tasks %}
+                            <article class="meetings-task-row">
+                                <div class="meetings-task-main">
+                                    <strong>{{ task.task }}</strong>
+                                    <span>{{ task.owner }}</span>
+                                </div>
+                                <span
+                                    class="meetings-task-priority meetings-priority-{{ task.priority|lower }}"
+                                    >{{ task.priority }}</span
+                                >
+                            </article>
+                            {% endfor %}
+                        </div>
                         {% else %}
-                            <p class="meetings-empty-copy">Action items will appear here once the meeting transcript is processed.</p>
+                        <p class="meetings-empty-copy">
+                            Action items will appear here once the meeting
+                            transcript is processed.
+                        </p>
                         {% endif %}
                     </div>
                 </div>
             </section>
 
-            <section id="high-priority-panel" class="meetings-tab-panel" role="tabpanel" hidden>
+            <section
+                id="high-priority-panel"
+                class="meetings-tab-panel"
+                role="tabpanel"
+                hidden
+            >
                 <div class="meetings-result-surface">
                     <div class="meetings-result-heading">
                         <div>
                             <p class="hero-kicker mb-2">High Priority</p>
                             <h3>Urgent follow-ups</h3>
                         </div>
-                        <span id="priority-count" class="meetings-result-count {% if not result %}is-hidden{% endif %}">
-                            {% if result %}
-                                {{ result.high_priority_tasks|length }} urgent
-                            {% endif %}
+                        <span
+                            id="priority-count"
+                            class="meetings-result-count {% if not result %}is-hidden{% endif %}"
+                        >
+                            {% if result %} {{ result.high_priority_tasks|length }} urgent {% endif %}
                         </span>
                     </div>
 
                     <div id="priority-content">
                         {% if result and result.high_priority_tasks %}
-                            <div class="meetings-priority-grid">
-                                {% for task in result.high_priority_tasks %}
-                                    <article class="meetings-priority-card">
-                                        <span class="meetings-priority-dot" aria-hidden="true"></span>
-                                        <div>
-                                            <strong>{{ task.task }}</strong>
-                                            <p>{{ task.owner }}</p>
-                                        </div>
-                                    </article>
-                                {% endfor %}
-                            </div>
+                        <div class="meetings-priority-grid">
+                            {% for task in result.high_priority_tasks %}
+                            <article class="meetings-priority-card">
+                                <span
+                                    class="meetings-priority-dot"
+                                    aria-hidden="true"
+                                ></span>
+                                <div>
+                                    <strong>{{ task.task }}</strong>
+                                    <p>{{ task.owner }}</p>
+                                </div>
+                            </article>
+                            {% endfor %}
+                        </div>
                         {% else %}
-                            <p class="meetings-empty-copy">High-priority tasks will be isolated here after analysis.</p>
+                        <p class="meetings-empty-copy">
+                            High-priority tasks will be isolated here after
+                            analysis.
+                        </p>
                         {% endif %}
                     </div>
                 </div>

@@ -1344,6 +1344,32 @@ button.app-sidebar-link:focus-visible {
     box-shadow: 0 10px 20px rgba(31, 78, 121, 0.16);
 }
 
+.meeting-ajax-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    font-weight: 600;
+    color: var(--primary-color);
+    animation: fadeIn 0.3s ease;
+}
+
+.status-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid rgba(31, 78, 121, 0.15);
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .meetings-inline-alert {
     border-radius: 18px;
     padding: 14px 18px;
@@ -1351,88 +1377,7 @@ button.app-sidebar-link:focus-visible {
     border: 1px solid rgba(220, 53, 69, 0.12);
     color: #8e2130;
     font-weight: 600;
-}
-
-.meetings-status-card {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(
-            0,
-            1fr
-        );
-    gap: 14px;
-    align-items: center;
-    padding: 24px 26px;
-    background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.52),
-        rgba(238, 242, 246, 0.94)
-    );
-}
-
-.meetings-status-step {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    transition: transform 0.25s ease;
-}
-
-.meetings-status-step:hover {
-    transform: translateY(-1px);
-}
-
-.meetings-status-step strong {
-    display: block;
-    margin-bottom: 4px;
-}
-
-.meetings-status-step p {
-    margin: 0;
-    font-size: 0.92rem;
-    line-height: 1.5;
-}
-
-.meetings-status-dot {
-    width: 42px;
-    height: 42px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    font-weight: 800;
-    flex: 0 0 auto;
-    transition:
-        background-color 0.25s ease,
-        color 0.25s ease,
-        box-shadow 0.25s ease;
-}
-
-.meetings-status-line {
-    width: 100%;
-    height: 2px;
-    background: rgba(36, 36, 36, 0.14);
-    border-radius: 999px;
-    transition: background-color 0.25s ease;
-}
-
-.meetings-status-step.is-complete .meetings-status-dot {
-    background: rgba(25, 135, 84, 0.14);
-    color: #136943;
-    box-shadow: 0 0 0 6px rgba(25, 135, 84, 0.06);
-}
-
-.meetings-status-step.is-active .meetings-status-dot {
-    background: rgba(31, 78, 121, 0.14);
-    color: var(--primary-color);
-    box-shadow: 0 0 0 6px rgba(31, 78, 121, 0.08);
-}
-
-.meetings-status-step.is-pending .meetings-status-dot {
-    background: rgba(36, 36, 36, 0.08);
-    color: rgba(36, 36, 36, 0.55);
-}
-
-.meetings-status-line.is-complete {
-    background: rgba(25, 135, 84, 0.24);
+    margin-top: 16px;
 }
 
 .meetings-results-shell {

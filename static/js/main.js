@@ -8,6 +8,36 @@ document.addEventListener("DOMContentLoaded", function () {
     var fileLabel = document.getElementById("meeting-file-label");
     var alertBox = document.getElementById("meetings-inline-alert");
     var submitButton = document.getElementById("meetings-submit-button");
+    var ajaxStatus = document.getElementById("meeting-ajax-status");
+    var statusText = document.getElementById("status-text");
+
+    var startStatusUpdates = function () {
+      if (!ajaxStatus || !statusText) return;
+      ajaxStatus.classList.remove("is-hidden");
+      statusText.textContent = "Connecting...";
+
+      return setInterval(function () {
+        fetch("/meetings/status/", {
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          credentials: "same-origin",
+        })
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (data) {
+            if (data && data.status) {
+              statusText.textContent = data.status;
+            }
+          })
+          .catch(function () {});
+      }, 1500);
+    };
+
+    var stopStatusUpdates = function (intervalId) {
+      if (intervalId) clearInterval(intervalId);
+      if (ajaxStatus) ajaxStatus.classList.add("is-hidden");
+    };
+
     var summaryCount = document.getElementById("summary-count");
     var tasksCount = document.getElementById("tasks-count");
     var priorityCount = document.getElementById("priority-count");
@@ -190,6 +220,7 @@ document.addEventListener("DOMContentLoaded", function () {
         submitButton.disabled = true;
         submitButton.textContent = "Analyzing...";
         setAlertMessage("");
+        var statusInterval = startStatusUpdates();
 
         fetch(form.action || window.location.href, {
           method: "POST",
@@ -212,6 +243,7 @@ document.addEventListener("DOMContentLoaded", function () {
             );
           })
           .finally(function () {
+            stopStatusUpdates(statusInterval);
             submitButton.disabled = false;
             submitButton.textContent = "Analyze Meeting";
           });

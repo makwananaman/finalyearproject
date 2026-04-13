@@ -8,8 +8,10 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "default-secret-key")
-DEBUG = os.environ.get("DEBUG", "True") == "True"
-ALLOWED_HOSTS = []
+
+DEBUG = os.environ.get("DEBUG", "False") == "True"
+
+ALLOWED_HOSTS = ["*"]  # For Render (you can restrict later)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -26,6 +28,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # ✅ IMPORTANT FOR RENDER STATIC FILES
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -61,37 +65,34 @@ DATABASES = {
     }
 }
 
+# ===============================
+# STATIC FILES (VERY IMPORTANT)
+# ===============================
+
+STATIC_URL = "/static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
+# WhiteNoise config
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# ===============================
+# AUTH REDIRECTS
+# ===============================
+
+LOGIN_REDIRECT_URL = "/dashboard/"
+LOGOUT_REDIRECT_URL = "/"
+
+# ===============================
+# TIME & LANGUAGE
+# ===============================
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-
-LOGIN_REDIRECT_URL = "/meetings/"
-LOGOUT_REDIRECT_URL = "/"
-
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "standard": {
-            "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        }
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-        }
-    },
-    "loggers": {
-        "apps.meetings": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": False,
-        }
-    },
-}
